@@ -212,6 +212,9 @@ export default function App() {
   const [exampleUrls, setExampleUrls] = useState({ example1: '', example2: '' });
   const [editingUrls, setEditingUrls] = useState({ example1: '', example2: '' });
 
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [initialDrawings, setInitialDrawings] = useState<string[]>(['', '', '', '']);
+
   // Form State
   const [formData, setFormData] = useState({
     classNumber: '',
@@ -371,6 +374,59 @@ export default function App() {
     }
   };
 
+  const loadPreviousSubmission = async () => {
+    if (!formData.classNumber || !formData.studentNumber || !formData.studentName) {
+      showToast("학년, 반, 번호, 이름을 모두 입력한 후 불러오기를 눌러주세요.", "error");
+      return;
+    }
+
+    try {
+      const q = query(
+        collection(db, 'worksheets'),
+        where('classNumber', '==', parseInt(formData.classNumber)),
+        where('studentNumber', '==', parseInt(formData.studentNumber)),
+        where('studentName', '==', formData.studentName)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        showToast("작성된 글이 없습니다.", "error");
+        return;
+      }
+
+      const docSnap = querySnapshot.docs[0];
+      const data = docSnap.data();
+      
+      setEditingDocId(docSnap.id);
+      setFormData({
+        classNumber: data.classNumber.toString(),
+        studentNumber: data.studentNumber.toString(),
+        studentName: data.studentName,
+        characterName: data.characterName || '',
+        characterTraits: data.characterTraits || '',
+        event: data.event || '',
+        eventOther: data.eventOther || '',
+        title: data.title || '',
+        conflict: data.conflict || '',
+        solution: data.solution || '',
+        sciencePrinciple: data.sciencePrinciple || ''
+      });
+      
+      if (data.captions) {
+        setCaptions(data.captions);
+      }
+      
+      if (data.drawings) {
+        setInitialDrawings(data.drawings);
+      }
+      
+      showToast("이전에 작성한 글을 불러왔습니다.");
+    } catch (error) {
+      console.error("Error loading submission:", error);
+      showToast("불러오기 중 오류가 발생했습니다.", "error");
+    }
+  };
+
   const handleSubmit = async () => {
     if (!formData.classNumber || !formData.studentNumber || !formData.studentName) {
       showToast("학년, 반, 번호, 이름을 모두 입력해주세요.", "error");
@@ -396,26 +452,70 @@ export default function App() {
         return canvas.toDataURL('image/png');
       });
 
-      await addDoc(collection(db, 'worksheets'), {
-        grade: 1,
-        classNumber: parseInt(formData.classNumber) || 0,
-        studentNumber: parseInt(formData.studentNumber) || 0,
+      if (editingDocId) {
+        await updateDoc(doc(db, 'worksheets', editingDocId), {
+          characterName: formData.characterName,
+          characterTraits: formData.characterTraits,
+          event: formData.event,
+          eventOther: formData.eventOther,
+          title: formData.title,
+          conflict: formData.conflict,
+          solution: formData.solution,
+          sciencePrinciple: formData.sciencePrinciple,
+          drawings,
+          captions,
+          updatedAt: serverTimestamp()
+        });
+        showToast("성공적으로 수정되었습니다!");
+      } else {
+        await addDoc(collection(db, 'worksheets'), {
+          grade: 1,
+          classNumber: parseInt(formData.classNumber) || 0,
+          studentNumber: parseInt(formData.studentNumber) || 0,
+          studentName: formData.studentName,
+          characterName: formData.characterName,
+          characterTraits: formData.characterTraits,
+          event: formData.event,
+          eventOther: formData.eventOther,
+          title: formData.title,
+          conflict: formData.conflict,
+          solution: formData.solution,
+          sciencePrinciple: formData.sciencePrinciple,
+          drawings,
+          captions,
+          createdAt: serverTimestamp(),
+          authorUid: localUid
+        });
+        showToast("성공적으로 제출되었습니다!");
+      }
+
+      // Reset form
+      setEditingDocId(null);
+      setInitialDrawings(['', '', '', '']);
+      setFormData({
+        classNumber: formData.classNumber,
+        studentNumber: formData.studentNumber,
         studentName: formData.studentName,
-        characterName: formData.characterName,
-        characterTraits: formData.characterTraits,
-        event: formData.event,
-        eventOther: formData.eventOther,
-        title: formData.title,
-        conflict: formData.conflict,
-        solution: formData.solution,
-        sciencePrinciple: formData.sciencePrinciple,
-        drawings,
-        captions,
-        createdAt: serverTimestamp(),
-        authorUid: localUid
+        characterName: '',
+        characterTraits: '',
+        event: '',
+        eventOther: '',
+        title: '',
+        conflict: '',
+        solution: '',
+        sciencePrinciple: ''
+      });
+      setCaptions(['', '', '', '']);
+      
+      // Clear canvases
+      [0, 1, 2, 3].forEach(i => {
+        const canvas = document.getElementById(`canvas-${i}`) as HTMLCanvasElement;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
       });
 
-      showToast("성공적으로 제출되었습니다!");
       setView('board');
     } catch (error) {
       console.error("Error submitting document: ", error);
@@ -516,7 +616,15 @@ export default function App() {
             {isReadOnly ? (
               <span className="w-48 text-center border-b-2 border-dashed border-slate-400">{data.studentName}</span>
             ) : (
-              <input type="text" name="studentName" value={formData.studentName} onChange={handleInputChange} className="w-48 border-b-2 border-dashed border-slate-400 text-center outline-none bg-transparent focus:border-indigo-500" />
+              <div className="flex items-center gap-2">
+                <input type="text" name="studentName" value={formData.studentName} onChange={handleInputChange} className="w-32 md:w-48 border-b-2 border-dashed border-slate-400 text-center outline-none bg-transparent focus:border-indigo-500" />
+                <button 
+                  onClick={loadPreviousSubmission}
+                  className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-md hover:bg-indigo-200 font-bold whitespace-nowrap transition-colors"
+                >
+                  내 작성글 불러오기
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -662,7 +770,7 @@ export default function App() {
                 caption={isReadOnly ? data.captions?.[idx] : captions[idx]} 
                 onCaptionChange={isReadOnly ? undefined : (val) => setCaptions(prev => { const n = [...prev]; n[idx] = val; return n; })} 
                 readOnly={isReadOnly}
-                initialImage={isReadOnly ? data.drawings?.[idx] : ''}
+                initialImage={isReadOnly ? data.drawings?.[idx] : initialDrawings[idx]}
               />
             ))}
           </div>
