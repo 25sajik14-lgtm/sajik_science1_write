@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAS Deployment Guide</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .code-block { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        button { padding: 10px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>구글 앱스 스크립트(GAS) 배포용 코드</h1>
+    <p>아래 버튼을 클릭하여 <code>dist/index.html</code>의 전체 코드를 클립보드에 복사하세요.</p>
+    
+    <button id="copyBtn">전체 코드 복사하기</button>
+    <span id="copyMsg" style="color: green; margin-left: 10px; display: none;">복사되었습니다!</span>
+
+    <p>복사한 코드를 구글 앱스 스크립트의 <code>index.html</code> 파일에 붙여넣으시면 됩니다.</p>
+
+    <script>
+        document.getElementById('copyBtn').addEventListener('click', async () => {
+            try {
+                // Fetch the actual dist/index.html content
+                const response = await fetch('/dist/index.html');
+                const text = await response.text();
+                
+                await navigator.clipboard.writeText(text);
+                const msg = document.getElementById('copyMsg');
+                msg.style.display = 'inline';
+                setTimeout(() => msg.style.display = 'none', 3000);
+            } catch (err) {
+                alert('복사 중 오류가 발생했습니다: ' + err);
+            }
+        });
+    </script>
+</body>
+</html>
