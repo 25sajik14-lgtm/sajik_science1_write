@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, BookOpen, Zap, Lightbulb, Pin, Printer, Send, Users, ArrowLeft, LogIn, LogOut, MessageSquare, ShieldCheck, Award, UserCircle, Edit2, Trash2, HelpCircle, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Search, BookOpen, Zap, Lightbulb, Pin, Printer, Send, Users, ArrowLeft, LogIn, LogOut, MessageSquare, ShieldCheck, Award, UserCircle, Edit2, Trash2, HelpCircle, X, CheckCircle2, AlertCircle, Eraser } from 'lucide-react';
 import { db } from './firebase';
 import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, where, updateDoc, doc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
 
@@ -26,6 +26,8 @@ const DrawingCanvas = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [color, setColor] = useState('#1e293b');
+  const [isEraser, setIsEraser] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -37,7 +39,8 @@ const DrawingCanvas = ({
       if (ctx) {
         ctx.scale(2, 2);
         ctx.lineCap = 'round';
-        ctx.strokeStyle = '#1e293b';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = color;
         ctx.lineWidth = 3;
 
         if (initialImage) {
@@ -82,6 +85,16 @@ const DrawingCanvas = ({
 
     ctx.beginPath();
     ctx.moveTo(coords.x, coords.y);
+    
+    if (isEraser) {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.lineWidth = 20;
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+    }
+    
     setIsDrawing(true);
   };
 
@@ -115,13 +128,13 @@ const DrawingCanvas = ({
   return (
     <div className="flex flex-col w-full h-full">
       <div className="border-2 border-slate-500 rounded-lg overflow-hidden bg-white flex flex-col aspect-square relative group">
-        <div className="bg-slate-700 text-white text-xs font-bold px-3 py-1 self-start m-2 rounded-sm z-10 shadow-sm">
+        <div className="bg-slate-700 text-white text-xs font-bold px-3 py-1 self-start m-2 rounded-sm z-10 shadow-sm pointer-events-none">
           {label}
         </div>
         <canvas
           id={id}
           ref={canvasRef}
-          className={`absolute inset-0 w-full h-full touch-none bg-white ${readOnly ? 'cursor-default' : 'cursor-crosshair'}`}
+          className={`absolute inset-0 w-full h-full touch-none bg-white ${readOnly ? 'cursor-default' : isEraser ? 'cursor-cell' : 'cursor-crosshair'}`}
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
@@ -131,12 +144,34 @@ const DrawingCanvas = ({
           onTouchEnd={stopDrawing}
         />
         {!readOnly && (
-          <button 
-            onClick={clearCanvas} 
-            className="absolute bottom-2 right-2 text-xs font-medium text-slate-500 hover:text-red-500 z-10 print:hidden bg-white/90 px-2 py-1 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            지우기
-          </button>
+          <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center z-10 print:hidden bg-white/95 px-2 py-1.5 rounded-lg shadow-md border border-slate-200">
+            <div className="flex items-center gap-1.5">
+              {['#1e293b', '#ef4444', '#3b82f6', '#22c55e', '#eab308'].map(c => (
+                <button
+                  key={c}
+                  onClick={() => { setColor(c); setIsEraser(false); }}
+                  className={`w-5 h-5 rounded-full border-2 transition-transform ${color === c && !isEraser ? 'border-indigo-500 scale-110' : 'border-transparent hover:scale-110'}`}
+                  style={{ backgroundColor: c }}
+                  title="색상 선택"
+                />
+              ))}
+              <div className="w-px h-5 bg-slate-300 mx-1"></div>
+              <button
+                onClick={() => setIsEraser(true)}
+                className={`p-1.5 rounded-md transition-colors ${isEraser ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}
+                title="부분 지우개"
+              >
+                <Eraser className="w-4 h-4" />
+              </button>
+            </div>
+            <button 
+              onClick={clearCanvas} 
+              className="text-xs font-bold text-slate-500 hover:text-rose-500 px-2 py-1.5 rounded-md hover:bg-rose-50 transition-colors"
+              title="전체 지우기"
+            >
+              전체 지우기
+            </button>
+          </div>
         )}
       </div>
       {readOnly ? (
