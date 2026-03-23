@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, BookOpen, Zap, Lightbulb, Pin, Printer, Send, Users, ArrowLeft, LogIn, LogOut, MessageSquare, ShieldCheck, Award, UserCircle, Edit2, Trash2, HelpCircle, X, CheckCircle2, AlertCircle, Eraser } from 'lucide-react';
 import { db } from './firebase';
-import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, where, updateDoc, doc, deleteDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, serverTimestamp, where, updateDoc, doc, deleteDoc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const DrawingCanvas = ({ 
   label, 
@@ -314,53 +314,48 @@ export default function App() {
     return url;
   };
 
-  const fetchSubmissions = async () => {
-    try {
-      let q = query(collection(db, 'worksheets'), orderBy('createdAt', 'desc'));
-      const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSubmissions(data);
-    } catch (error) {
-      console.error("Error fetching submissions:", error);
-    }
-  };
-
-  const fetchAllFeedbacks = async () => {
-    try {
-      let q = query(collection(db, 'feedbacks'));
-      const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setAllFeedbacks(data);
-    } catch (error) {
-      console.error("Error fetching all feedbacks:", error);
-    }
-  };
-
-  const fetchFeedbacksForSubmission = async (worksheetId: string) => {
-    try {
-      let q = query(collection(db, 'feedbacks'), where('worksheetId', '==', worksheetId), orderBy('createdAt', 'asc'));
-      const querySnapshot = await getDocs(q);
-      const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFeedbacks(data);
-    } catch (error) {
-      console.error("Error fetching feedbacks:", error);
-    }
-  };
-
   useEffect(() => {
-    if (view === 'board') {
-      fetchSubmissions();
-      fetchAllFeedbacks();
-    } else if (view === 'teacher') {
-      fetchSubmissions();
-      fetchAllFeedbacks();
+    let unsubscribeSubmissions: () => void;
+    let unsubscribeFeedbacks: () => void;
+
+    if (view === 'board' || view === 'teacher') {
+      const qSubmissions = query(collection(db, 'worksheets'), orderBy('createdAt', 'desc'));
+      unsubscribeSubmissions = onSnapshot(qSubmissions, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+        setSubmissions(data);
+      }, (error) => {
+        console.error("Error fetching submissions:", error);
+      });
+
+      const qFeedbacks = query(collection(db, 'feedbacks'));
+      unsubscribeFeedbacks = onSnapshot(qFeedbacks, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+        setAllFeedbacks(data);
+      }, (error) => {
+        console.error("Error fetching all feedbacks:", error);
+      });
     }
+
+    return () => {
+      if (unsubscribeSubmissions) unsubscribeSubmissions();
+      if (unsubscribeFeedbacks) unsubscribeFeedbacks();
+    };
   }, [view]);
 
   useEffect(() => {
+    let unsubscribe: () => void;
     if (view === 'detail' && selectedSubmission) {
-      fetchFeedbacksForSubmission(selectedSubmission.id);
+      const q = query(collection(db, 'feedbacks'), where('worksheetId', '==', selectedSubmission.id), orderBy('createdAt', 'asc'));
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+        setFeedbacks(data);
+      }, (error) => {
+        console.error("Error fetching feedbacks:", error);
+      });
     }
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [view, selectedSubmission]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -440,20 +435,29 @@ export default function App() {
         if (!canvas) return '';
         
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
+        tempCanvas.width = canvas.width / 2;
+        tempCanvas.height = canvas.height / 2;
         const ctx = tempCanvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-          ctx.drawImage(canvas, 0, 0);
-          return tempCanvas.toDataURL('image/jpeg', 0.6);
+          ctx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+          return tempCanvas.toDataURL('image/jpeg', 0.5);
         }
         return canvas.toDataURL('image/png');
       });
 
+      let targetDocRef;
       if (editingDocId) {
-        await updateDoc(doc(db, 'worksheets', editingDocId), {
+        targetDocRef = doc(db, 'worksheets', editingDocId);
+      } else {
+        const docId = `${formData.classNumber}_${formData.studentNumber}_${formData.studentName}`;
+        targetDocRef = doc(db, 'worksheets', docId);
+      }
+
+      const docSnap = await getDoc(targetDocRef);
+      if (docSnap.exists()) {
+        await updateDoc(targetDocRef, {
           characterName: formData.characterName,
           characterTraits: formData.characterTraits,
           event: formData.event,
@@ -468,7 +472,7 @@ export default function App() {
         });
         showToast("성공적으로 수정되었습니다!");
       } else {
-        await addDoc(collection(db, 'worksheets'), {
+        await setDoc(targetDocRef, {
           grade: 1,
           classNumber: parseInt(formData.classNumber) || 0,
           studentNumber: parseInt(formData.studentNumber) || 0,
@@ -484,6 +488,7 @@ export default function App() {
           drawings,
           captions,
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
           authorUid: localUid
         });
         showToast("성공적으로 제출되었습니다!");
@@ -572,7 +577,6 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'worksheets', deletingSubmission.id));
       setDeletingSubmission(null);
-      fetchSubmissions();
       showToast("게시물이 삭제되었습니다.");
       if (view === 'detail' && selectedSubmission?.id === deletingSubmission.id) {
         setView('board');
@@ -920,7 +924,6 @@ export default function App() {
                     studentName: editFormData.studentName
                   });
                   setEditingStudent(null);
-                  fetchSubmissions();
                   showToast("학생 정보가 수정되었습니다.");
                 } catch (e) {
                   console.error(e);
